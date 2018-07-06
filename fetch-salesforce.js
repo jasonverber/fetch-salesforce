@@ -5,8 +5,8 @@
 
 'use strict';
 
-const salesforceSession = (_OAuthUrl = document.location.toString(), { 
-	_instanceUrl = 'https://test.salesforce.com',
+var salesforceSession = (_OAuthUrl = document.location.toString(), {
+	_instanceUrl,
 	_servicesPath = '/services/data/',
 	version = '43.0'
 } = {}) => {
@@ -20,13 +20,14 @@ const salesforceSession = (_OAuthUrl = document.location.toString(), {
 		searchRecords,
 		insertResults,
 		updateResults,
+		deleteResults,
 		soql,
 		sosl,
 		version;
 
 	const _url = (path='') => _OAuthVars.instance_url + _servicesPath + 'v' + version + '/' + path;
 
-	_OAuthVarPairs = _OAuthUrl.split('#')[1].split('&');
+	var _OAuthVarPairs = _OAuthUrl.split('#')[1].split('&');
 	for (let i = 0; i < _OAuthVarPairs.length; i++) {
 		let pair = _OAuthVarPairs[i].split('=');
 		_OAuthVars[decodeURIComponent(pair[0])] = decodeURIComponent(pair[1] || '');
@@ -134,9 +135,33 @@ const salesforceSession = (_OAuthUrl = document.location.toString(), {
 		searchRecords,
 		insertResults,
 		updateResults,
+		deleteResults,
 		soql,
 		sosl,
 		version,
+		/**
+		* Get a Salesforce object.
+		* @param {string} SObjectName The type of object to get.
+		* @param {string} id The id of the object to get.
+		* @param {object} optionalParameters Parameters for the fetch request.
+		* @returns {promise} Promise resolving to array with the record returned.
+		*/
+		async get (SObjectName, id, parameters){
+			let url = "sobjects/"+encodeURIComponent(SObjectName)+"/"+encodeURIComponent(id);
+
+			try{
+				parameters = _parameters(parameters);
+				let results = await _get(url, parameters);
+				this.records = [results];
+				return this.records;
+			} catch(e){
+				console.log("EXCEPTION!!!");
+				console.log(e);
+				this.records = false;
+				throw "Get failed!";
+				return false;
+			}
+		},
 		/**
 		* Perform a Salesforce query.
 		* @param {string} mySoql The query to execute. If none provided, uses this.soql.
@@ -147,9 +172,9 @@ const salesforceSession = (_OAuthUrl = document.location.toString(), {
 			this.soql = mySoql;
 
 			let query = "query?q="+encodeURIComponent(this.soql);
-			
+
 			try{
-				parameters = _parameters(parameters); 
+				parameters = _parameters(parameters);
 				let results = await _get(query, parameters);
 				this.records = results.records;
 				while (results.nextRecordsUrl != undefined) {
@@ -163,7 +188,7 @@ const salesforceSession = (_OAuthUrl = document.location.toString(), {
 				this.records = false;
 				throw "Query failed!";
 				return false;
-			}	
+			}
 		},
 		/**
 		* Perform a Salesforce search.
@@ -185,13 +210,13 @@ const salesforceSession = (_OAuthUrl = document.location.toString(), {
 					this.searchRecords = this.searchRecords.concat(results.searchRecords);
 				}
 				return this.searchResults;
-			} catch(e){				
+			} catch(e){
 				console.log("EXCEPTION!!!");
 				console.log(e);
 				this.searchRecords = false;
 				throw "Search failed!";
 				return false;
-			} 
+			}
 		},
 
 		/**
@@ -207,7 +232,7 @@ const salesforceSession = (_OAuthUrl = document.location.toString(), {
 					requests[i] = {method:"GET",url:'v' + version + '/' + requests[i]};
 				}
 			}
-			
+
 			var batchResponses = false;
 			while (requests.length > 0) {
 				var batchRequests = requests.splice(0,25);
@@ -241,7 +266,7 @@ const salesforceSession = (_OAuthUrl = document.location.toString(), {
 
 			//Special URL for multiple oRecords.
 			var url = "composite/tree/"+type+"/";
-		 
+
 			//Initialize the array for our results.
 			this.insertReults = [];
 			try {
@@ -275,7 +300,7 @@ const salesforceSession = (_OAuthUrl = document.location.toString(), {
 
 			//Special URL for multiple oRecords.
 			var url = "composite/sobjects?_HttpMethod=PATCH";
-		 
+
 			//Initialize the array for our results.
 			this.updateResults = [];
 			try {
@@ -291,6 +316,38 @@ const salesforceSession = (_OAuthUrl = document.location.toString(), {
 				console.log(e);
 				this.updateResults = false;
 				throw "Salesforce "+type+" update failed!";
+				return false;
+			}
+		},
+
+		/**
+		* Delete Salesforce records.
+		* @param {array} sIds An array of the IDs to be deleted.
+		* @returns {array} An array of Salesforce DeleteResult objects.
+		*/
+		async delete (sIds){
+			//If we have only one record and it has attributes and a type then use it.
+			if (sIds && !Array.isArray(sIds)) sIds = [sIds];
+			//Any records to be submitted need to be in an array, and each object in the array needs .attributes and .type
+			if (!sIds) throw new Error("No valid IDs to delete!");
+
+			//Special URL for multiple sIDs
+			var url = "composite/sobjects?_HttpMethod=DELETE&ids=";
+
+			//Initialize the array for our results.
+			this.deleteResults = [];
+			try {
+			//Batches of 200 (maximum allowed by Salesforce)
+				while (sIds.length > 0) {
+					var sIdsBatch = sIds.splice(0,200);
+					this.deleteResults = this.deleteResults.concat(await _post(url+sIdsBatch.join(",")));
+				}
+				return this.deleteResults;
+			} catch(e){
+				console.log("EXCEPTION!!!");
+				console.log(e);
+				this.updateResults = false;
+				throw "Salesforce delete failed!";
 				return false;
 			}
 		}
